@@ -224,7 +224,9 @@ Definition ap2 {X} (f : nat -> nat -> X) (x : Aexp) (y : Aexp) (st : state) :=
   f (x st) (y st).
 
 Module ExPrettyAssertions.
+
 Definition ex1 : Assertion := X = 3.
+
 Definition ex2 : Assertion := True.
 Definition ex3 : Assertion := False.
 

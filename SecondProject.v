@@ -75,10 +75,10 @@ Inductive com : Type :=
   | CSeq (c1 c2 : com)
   | CIf (b : bexp) (c1 c2 : com)
   | CWhile (b : bexp) (c : com)
-  | CAssert (*TODO*)
-  | CAssume (*TODO*)
-  | CHavoc (*TODO*)
-  | CNonDetChoice (*TODO*).
+  | CAssert (b : bexp)
+  | CAssume (b : bexp) 
+  | CHavoc (x : string)
+  | CNonDetChoice (c1 c2 : com).
 
 Notation "'skip'"  :=
          CSkip (in custom com at level 0) : com_scope.
@@ -167,9 +167,23 @@ Inductive ceval : com -> state -> result -> Prop :=
       beval st b = true ->
       st =[ c ]=> RError ->
       st =[ while b do c end ]=> RError
-
-  (* TODO *)
-
+  | E_AssertTrue : forall st b,
+      beval st b = true ->
+      st =[ assert b ]=> RNormal st
+  | E_AssertFalse : forall st b,
+      beval st b = false ->
+      st =[ assert b ]=> RError
+  | E_Assume : forall st b,
+      beval st b = true ->
+      st =[ assume b ]=> RNormal st
+  | E_Havoc : forall st X n,
+    st =[ havoc X ]=> RNormal (X !-> n ; st)
+  | E_NonDetChoice1: forall st st' c1 c2,
+    st =[ c1 ]=> RNormal st' ->
+    st =[ c1 !! c2 ]=> RNormal st'
+  | E_NonDetChoice2: forall st st' c1 c2,
+    st =[ c2 ]=> RNormal st' ->
+    st =[ c1 !! c2 ]=> RNormal st'
 where "st '=[' c ']=>' r" := (ceval c st r).
 
 
@@ -207,27 +221,46 @@ Theorem assume_false: forall P Q b,
        (forall st, beval st b = false) ->
        ({{P}} assume b {{Q}}).
 Proof.
-  (* TODO *)
+  intros P Q b H st r Himp Hhoare.
+  inversion Himp; subst.
+  rewrite H in H1.
+  discriminate.
 Qed.
 
+Check hoare_pre_false.
 Theorem assert_assume_differ : exists P b Q,
        ({{P}} assume b {{Q}})
   /\ ~ ({{P}} assert b {{Q}}).
 Proof.
-  exists (* TODO: example for P *)
-  exists (* TODO: example for b *)
-  exists (* TODO: example for Q *)
-  (* TODO *)
+  exists True.
+  exists BFalse.
+  exists False.
+  split.
+  - apply assume_false. 
+    reflexivity.
+  - intros H.
+    unfold hoare_triple in H. 
+    specialize (H empty_st RError).
+    destruct H.
+    -- apply E_AssertFalse. reflexivity.
+    -- reflexivity.
+    -- destruct H. discriminate.
 Qed.
 
 Theorem assert_implies_assume : forall P b Q,
      ({{P}} assert b {{Q}})
   -> ({{P}} assume b {{Q}}).
 Proof.
-  (* TODO *)
+  unfold hoare_triple in *.
+  intros.
+  inversion H0; subst.
+  specialize (H st (RNormal st)).
+  destruct H.
+  - apply E_AssertTrue. assumption.
+  - assumption.
+  - destruct H. exists x. 
+  split; assumption.
 Qed.
-
-
 
 (* ################################################################# *)
 (* EXERCISE 4 (5 points): Define Hoare rules for the new operators   *)
