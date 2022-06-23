@@ -227,7 +227,6 @@ Proof.
   discriminate.
 Qed.
 
-Check hoare_pre_false.
 Theorem assert_assume_differ : exists P b Q,
        ({{P}} assume b {{Q}})
   /\ ~ ({{P}} assert b {{Q}}).
@@ -384,9 +383,13 @@ Qed.
 (* ================================================================= *)
 
 Theorem hoare_assert: forall P (b: bexp),
-  (*TODO: Hoare proof rule for [assert b] *)
+  {{P /\ b}} assert b {{P}}.
 Proof.
-  (* TODO *)
+  intros P b st r H Hpre.
+  inversion H; subst.
+  - exists st. split; try reflexivity; try assumption.
+    destruct Hpre. assumption.
+  - destruct Hpre. inversion H2. rewrite H1 in H4. discriminate. 
 Qed.
 
 (* ================================================================= *)
@@ -394,8 +397,14 @@ Qed.
 (* ================================================================= *)
 
 Theorem hoare_assume: forall (P:Assertion) (b:bexp),
+  {{P /\ b}} assume b {{P}}.
   (*TODO: Hoare proof rule for [assume b] *)
 Proof.
+  intros P b st r Heval Hpre.
+  inversion Heval; subst.
+  exists st. split.
+  - reflexivity.
+  - destruct Hpre. assumption.
   (* TODO *)
 Qed.
 
@@ -405,12 +414,21 @@ Qed.
 (*               and use it in the definition of [hoare_havoc].      *)
 (* ================================================================= *)
 
+Compute empty_st X.
 Definition havoc_pre (X : string) (Q : Assertion) : Assertion :=
-  (* TODO *).
+  fun st => forall n, st X = n /\ Q st.
 
 Theorem hoare_havoc : forall (Q : Assertion) (X : string),
   {{ havoc_pre X Q }} havoc X {{ Q }}.
 Proof.
+  intros Q X st r Heval HPre.
+  inversion Heval; subst.
+  unfold havoc_pre in HPre.
+  specialize (HPre n).
+  inversion HPre; subst.
+  eexists. split.
+  - reflexivity.
+  - rewrite t_update_same. assumption.
   (* TODO *)
 Qed.
 
@@ -420,8 +438,27 @@ Qed.
 (* ================================================================= *)
 
 Theorem hoare_choice : forall P1 c1 Q1 P2 c2 Q2,
+  {{P1}} c1 {{Q1}} ->
+  {{P2}} c2 {{Q2}} ->
+  {{P1 /\ P2}} c1 !! c2 {{Q1 \/ Q2}}.
   (*TODO: Hoare proof rule for [c1 !! c2] *)
 Proof.
+  intros P1 c1 Q1 P2 c2 Q2 Hc1 Hc2 st r Heval Hpre.
+  inversion Heval; subst.
+  destruct Hpre as [HP1 HP2].
+  - eexists. split.
+    -- reflexivity.
+    -- specialize (Hc1 st (RNormal st')).
+       destruct Hc1; try assumption.
+       destruct H. inversion H; subst.
+       left. assumption.
+  - destruct Hpre as [HP1 HP2]. 
+      eexists. split.
+    -- reflexivity.
+    -- specialize (Hc2 st (RNormal st')).
+       destruct Hc2; try assumption.
+       destruct H. inversion H; subst.
+       right. assumption.
   (* TODO *)
 Qed.
 
@@ -437,7 +474,23 @@ Example assert_assume_example:
   X := X + 1
   {{ X = 42 }}.  
 Proof.
-  (* TODO *)
+  intros st r Heval Hpre.
+(*   inversion Hpre. subst. *)
+  inversion Heval; subst.
+  inversion Heval; subst.
+  inversion Heval; subst.
+    - inversion H3; subst.
+      unfold beval in H7.
+      simpl in *.
+      rewrite Hpre in H7.
+      discriminate.
+    - inversion H7; subst.
+    - inversion H1; subst.
+      unfold beval in H3.
+      simpl in *.
+      rewrite Hpre in H3.
+      discriminate.
+    - inversion H3; subst.
 Qed.
 
 
@@ -455,7 +508,7 @@ Reserved Notation " t '/' st '-->' t' '/' st' "
 
 Inductive cstep : (com * result)  -> (com * result) -> Prop :=
   (* Old part *)
-  | CS_AssStep : forall st i a a',
+  | CS_AsgnStep : forall st i a a',
       a / st -->a a' ->
       <{ i := a }> / RNormal st --> <{ i := a' }> / RNormal st
   | CS_Asgn : forall st i n,
@@ -476,6 +529,30 @@ Inductive cstep : (com * result)  -> (com * result) -> Prop :=
   | CS_While : forall st b c1,
           <{while b do c1 end}> / st 
       --> <{ if b then (c1; while b do c1 end) else skip end }> / st
+  | CS_AssertStep: forall st b b',
+    b / st -->b b' ->
+    <{ assert b }> / RNormal st --> <{ assert b' }> / RNormal st
+  | CS_AssertTrue: forall st,
+    <{ assert true }> / RNormal st --> <{ skip }> / RNormal st
+  | CS_AssertFalse: forall st,
+    <{ assert false }> / RNormal st --> <{ skip }> / RError
+  | CS_AssumeStep: forall st b b',
+    b / st -->b b' ->
+    <{ assume b }> / RNormal st --> <{ assume b' }> / RNormal st
+  | CS_AssumeTrue: forall st,
+    <{ assume true }> / RNormal st --> <{ skip }> / RNormal st
+  | CS_Havoc : forall st i n,
+      <{ havoc i }> / RNormal st --> <{ skip }> / RNormal (i !-> n ; st)
+  | CS_Choice1 : forall st st' c1 c1' c2,
+      c1 / st --> c1' / st' ->
+      <{ c1 !! c2 }> / st --> c1' / st'
+  | CS_Choice2 : forall st st' c1 c2 c2',
+       c2 / st --> c2' / st' ->
+      <{ c1 !! c2 }> / st --> c2' / st'
+(*   | CS_Choice1 : forall st c1 c2,
+      <{ c1 !! c2 }> / st --> c1 / st
+  | CS_Choice2 : forall st c1 c2,
+      <{ c1 !! c2 }> / st --> c2 / st *)
   (*TODO: rule(s) for Assert *)
   (*TODO: rule(s) for Assume *)
   (*TODO: rule(s) for Havoc *)
@@ -516,14 +593,14 @@ Proof.
 
   (* Sequence and X := X+1*)
   eapply multi_step. apply CS_SeqStep. 
-  apply CS_AssStep. apply AS_Plus1. apply AS_Id.
-  eapply multi_step. apply CS_SeqStep. apply CS_AssStep. apply AS_Plus.
+  apply CS_AsgnStep. apply AS_Plus1. apply AS_Id.
+  eapply multi_step. apply CS_SeqStep. apply CS_AsgnStep. apply AS_Plus.
   simpl. eapply multi_step. apply CS_SeqStep. apply CS_Asgn. eapply multi_step. 
   apply CS_SeqFinish.
 
   (* X := X + 2 *)
-  eapply multi_step. apply CS_AssStep. apply AS_Plus1. apply AS_Id.
-  eapply multi_step. apply CS_AssStep. apply AS_Plus.
+  eapply multi_step. apply CS_AsgnStep. apply AS_Plus1. apply AS_Id.
+  eapply multi_step. apply CS_AsgnStep. apply AS_Plus.
   simpl. eapply multi_step. apply CS_Asgn. eapply multi_refl.
 
   reflexivity.
@@ -542,6 +619,69 @@ Example prog1_example1:
        prog1 / RNormal (X !-> 1) -->* <{ skip }> / RNormal st'
     /\ st' X = 2.
 Proof.
+  eexists. split.
+  - unfold prog1.
+    eapply multi_step.
+    apply CS_SeqStep.
+    + apply CS_AssumeStep.
+       apply BS_Eq1. apply AS_Id.
+    + eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_AssumeStep.
+      apply BS_Eq.
+      eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_AssumeTrue.
+      eapply multi_step.
+      apply CS_SeqFinish.
+      eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_Choice1.
+      apply CS_AsgnStep.
+      apply AS_Plus1.
+      apply AS_Id.
+      eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_AsgnStep.
+      apply AS_Plus.
+      eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_Asgn.
+      eapply multi_step.
+      apply CS_SeqFinish.
+      eapply multi_step.
+      apply CS_AssertStep.
+      apply BS_Eq1.
+      apply AS_Id.
+      eapply multi_step.
+      apply CS_AssertStep.
+      apply BS_Eq.
+      simpl.
+      eapply multi_step.
+      apply CS_AssertTrue.
+      eapply multi_refl.
+      - reflexivity.
+(*       apply AS_Id.
+      apply CS_SeqStep.
+      apply CS_AsgnStep.
+      apply AS_Plus.
+      simpl.
+      eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_Asgn.
+      eapply multi_step.
+      apply CS_SeqFinish.
+      eapply multi_step.
+      apply CS_AssertStep.
+      apply BS_Eq1. 
+      apply AS_Id.
+      eapply multi_step.
+      apply CS_AssertStep.
+      apply BS_Eq.
+      eapply multi_step.
+      apply CS_AssertTrue.
+      eapply multi_refl.
+     - reflexivity. *)
   (* TODO *)
 Qed.
 
@@ -549,6 +689,45 @@ Qed.
 Example prog1_example2:
        prog1 / RNormal (X !-> 1) -->* <{ skip }> / RError.
 Proof.
+  unfold prog1.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_AssumeStep.
+  apply BS_Eq1. apply AS_Id.
+  eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_AssumeStep.
+      apply BS_Eq.
+      eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_AssumeTrue.
+      eapply multi_step.
+      apply CS_SeqFinish.
+      eapply multi_step.
+      apply CS_SeqStep.
+      apply CS_Choice2.
+      apply CS_Asgn.
+      eapply multi_step.
+      apply CS_SeqFinish.
+      eapply multi_step.
+      apply CS_AssertStep.
+      apply BS_Eq1.
+      apply AS_Id.
+      eapply multi_step.
+      apply CS_AssertStep.
+      apply BS_Eq.
+      simpl.
+      eapply multi_step.
+      apply CS_AssertFalse.
+      eapply multi_refl.
+(*       apply BS_Eq1. 
+      apply AS_Id.
+      eapply multi_step.
+      apply CS_AssertStep.
+      apply BS_Eq.
+        eapply multi_step.
+      apply CS_AssertFalse.
+      eapply multi_refl. *)
   (* TODO *) 
 Qed.
     
@@ -561,6 +740,19 @@ Lemma one_step_aeval_a: forall st a a',
   a / st -->a a' ->
   aeval st a = aeval st a'.
 Proof.
+   induction a; intros.
+   - inversion H.
+   - inversion H. simpl. reflexivity.
+   - simpl. inversion H; subst; simpl; try reflexivity.
+    + specialize (IHa1 a1'). rewrite IHa1;  try assumption. reflexivity.
+    + specialize (IHa2 a2'). rewrite IHa2;  try assumption. reflexivity.
+   - simpl. inversion H; subst; simpl; try reflexivity.
+     + specialize (IHa1 a1'). rewrite IHa1;  try assumption. reflexivity.
+    + specialize (IHa2 a2'). rewrite IHa2;  try assumption.
+      reflexivity.
+   - simpl. inversion H; subst; simpl; try reflexivity.
+    + specialize (IHa1 a1'). rewrite IHa1;  try assumption. reflexivity.
+    + specialize (IHa2 a2'). rewrite IHa2;  try assumption. reflexivity.
   (* TODO (Hint: you can prove this by induction on a) *)
 Qed.
 
@@ -568,6 +760,27 @@ Lemma one_step_beval_b: forall st b b',
   b / st -->b b' ->
   beval st b = beval st b'.
 Proof.
+  induction b; intros.
+  - inversion H.
+  - inversion H.
+  - simpl. inversion H; subst.
+    + simpl. apply one_step_aeval_a in H3. rewrite H3. reflexivity.
+    + simpl. apply one_step_aeval_a in H4. rewrite H4. reflexivity.
+    + simpl. destruct (n1 =? n2); simpl; reflexivity.
+  - simpl. inversion H; subst.
+    + simpl. apply one_step_aeval_a in H3. rewrite H3. reflexivity.
+    + simpl. apply one_step_aeval_a in H4. rewrite H4. reflexivity.
+    + simpl. destruct (n1 <=? n2); simpl; reflexivity.
+  - simpl. inversion H; subst.
+    + simpl. specialize (IHb b1'). rewrite IHb by assumption. reflexivity.
+    + simpl. reflexivity.
+    + simpl. reflexivity. 
+  - simpl. inversion H; subst.
+    + specialize (IHb1 b1'). rewrite IHb1 by assumption. simpl. reflexivity.
+    + specialize (IHb2 b2'). rewrite IHb2 by assumption. simpl. reflexivity.
+    + simpl. reflexivity.
+    + simpl. reflexivity.
+    + simpl. reflexivity.
   (* TODO *)
 Qed.
 
@@ -577,6 +790,11 @@ Lemma aval_asgn_if: forall st x a result,
   st =[ x := a ]=> result ->
   <{ x := a }> / RNormal st -->* <{ skip }> / result.
 Proof.
+  intros st x a r Hval Heval.
+  inversion Heval; subst.
+  inversion Hval; subst. eapply multi_step.
+  - apply CS_Asgn.
+  - eapply multi_refl.
   (* TODO *)
 Qed.
 
@@ -586,6 +804,54 @@ Lemma small_step_big_step1: forall c c' st st' st'',
 -> st' =[ c' ]=> RNormal st''
 -> st =[ c ]=> RNormal st''.
 Proof.
+  induction c; intros c' st st' st'' Hsmall Hbig.
+  - inversion Hsmall. 
+  - inversion Hsmall; subst.
+    + inversion Hbig; subst. 
+      apply one_step_aeval_a in H0. destruct H0.
+      apply E_Asgn. reflexivity.
+    + inversion Hbig; subst.
+      apply E_Asgn. reflexivity.
+  - inversion Hsmall; subst.
+    + inversion Hbig; subst.
+      eapply IHc1 in H2; try eassumption.
+      eapply E_SeqNormal; try eassumption.
+    + eapply E_SeqNormal.
+      eapply E_Skip. assumption.
+  - inversion Hsmall; subst.
+    inversion Hbig; subst.
+    + apply one_step_beval_b in H0.
+      eapply E_IfTrue; try assumption.
+      rewrite H0. assumption.
+    + apply one_step_beval_b in H0.
+      eapply E_IfFalse; try assumption.
+      rewrite H0. assumption.
+    + eapply E_IfTrue; try reflexivity; try assumption.
+    + eapply E_IfFalse; try reflexivity; try assumption.
+  - inversion Hsmall; subst.
+    inversion Hbig; subst.
+    + inversion H5; subst. eapply E_WhileTrueNormal in H6.
+      * eassumption.
+      * assumption.
+      * assumption. 
+    + inversion H5; subst. apply E_WhileFalse. assumption.
+   - inversion Hsmall; subst.
+    + inversion Hbig; subst. apply E_AssertTrue.
+      apply one_step_beval_b in H0. rewrite H0. assumption.
+    + inversion Hbig; subst.
+      apply E_AssertTrue. reflexivity.
+   - inversion Hsmall; subst.
+    + inversion Hbig; subst. apply E_Assume. 
+      apply one_step_beval_b in H0. rewrite H0. assumption.
+    + inversion Hbig; subst. apply E_Assume. reflexivity.
+  - inversion Hsmall; subst. inversion Hbig; subst.
+    apply E_Havoc.
+  - inversion Hsmall; subst.
+    + eapply IHc1 in Hbig; try eassumption.
+      apply E_NonDetChoice1. eassumption.
+    + eapply IHc2 in Hbig; try eassumption.
+      apply E_NonDetChoice2. assumption.
+  
   (* TODO (Hint: you can prove this by induction on c) *)
 Qed. 
 
