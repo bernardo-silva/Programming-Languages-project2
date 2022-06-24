@@ -250,15 +250,16 @@ Theorem assert_implies_assume : forall P b Q,
      ({{P}} assert b {{Q}})
   -> ({{P}} assume b {{Q}}).
 Proof.
-  unfold hoare_triple in *.
+  unfold hoare_triple.
   intros.
   inversion H0; subst.
   specialize (H st (RNormal st)).
   destruct H.
   - apply E_AssertTrue. assumption.
   - assumption.
-  - destruct H. exists x. 
-  split; assumption.
+  - destruct H.
+    exists x.
+    split; assumption.
 Qed.
 
 (* ################################################################# *)
@@ -383,12 +384,12 @@ Qed.
 (* ================================================================= *)
 
 Theorem hoare_assert: forall P (b: bexp),
-  {{P /\ b}} assert b {{P}}.
+  {{P /\ b}} assert b {{P /\ b}}.
 Proof.
   intros P b st r H Hpre.
   inversion H; subst.
-  - exists st. split; try reflexivity; try assumption.
-    destruct Hpre. assumption.
+  - exists st. 
+    split. reflexivity. assumption.
   - destruct Hpre. inversion H2. rewrite H1 in H4. discriminate. 
 Qed.
 
@@ -397,14 +398,16 @@ Qed.
 (* ================================================================= *)
 
 Theorem hoare_assume: forall (P:Assertion) (b:bexp),
-  {{P /\ b}} assume b {{P}}.
+  {{P \/ ~b }} assume b {{P}}.
   (*TODO: Hoare proof rule for [assume b] *)
 Proof.
   intros P b st r Heval Hpre.
   inversion Heval; subst.
   exists st. split.
   - reflexivity.
-  - destruct Hpre. assumption.
+  - inversion Hpre.
+    -- assumption.
+    -- unfold not in H. contradiction.
   (* TODO *)
 Qed.
 
@@ -414,18 +417,17 @@ Qed.
 (*               and use it in the definition of [hoare_havoc].      *)
 (* ================================================================= *)
 
-Compute empty_st X.
 Definition havoc_pre (X : string) (Q : Assertion) : Assertion :=
   fun st => forall n, st X = n /\ Q st.
 
 Theorem hoare_havoc : forall (Q : Assertion) (X : string),
   {{ havoc_pre X Q }} havoc X {{ Q }}.
 Proof.
-  intros Q X st r Heval HPre.
+  intros Q X st r Heval Hpre.
   inversion Heval; subst.
-  unfold havoc_pre in HPre.
-  specialize (HPre n).
-  inversion HPre; subst.
+  unfold havoc_pre in Hpre.
+  specialize (Hpre n).
+  inversion Hpre; subst.
   eexists. split.
   - reflexivity.
   - rewrite t_update_same. assumption.
@@ -444,16 +446,15 @@ Theorem hoare_choice : forall P1 c1 Q1 P2 c2 Q2,
   (*TODO: Hoare proof rule for [c1 !! c2] *)
 Proof.
   intros P1 c1 Q1 P2 c2 Q2 Hc1 Hc2 st r Heval Hpre.
-  inversion Heval; subst.
   destruct Hpre as [HP1 HP2].
+  inversion Heval; subst.
   - eexists. split.
     -- reflexivity.
     -- specialize (Hc1 st (RNormal st')).
        destruct Hc1; try assumption.
        destruct H. inversion H; subst.
        left. assumption.
-  - destruct Hpre as [HP1 HP2]. 
-      eexists. split.
+  - eexists. split.
     -- reflexivity.
     -- specialize (Hc2 st (RNormal st')).
        destruct Hc2; try assumption.
@@ -476,14 +477,6 @@ Example assert_assume_example:
 Proof.
 intros st r Heval Hpre.
 inversion Heval; subst.
-inversion Heval; subst.
-inversion Heval; subst.
-  - inversion H3; subst.
-    unfold beval in H7.
-    simpl in *.
-    rewrite Hpre in H7.
-    discriminate.
-  - inversion H7; subst.
   - inversion H1; subst.
     unfold beval in H3.
     simpl in *.
@@ -491,8 +484,6 @@ inversion Heval; subst.
     discriminate.
   - inversion H3; subst.
 Qed.
-
-
 
 
 (* ################################################################### *)
@@ -541,12 +532,6 @@ Inductive cstep : (com * result)  -> (com * result) -> Prop :=
     <{ assume true }> / RNormal st --> <{ skip }> / RNormal st
   | CS_Havoc : forall st i n,
       <{ havoc i }> / RNormal st --> <{ skip }> / RNormal (i !-> n ; st)
-(*   | CS_Choice1 : forall st st' c1 c1' c2,
-      c1 / st --> c1' / st' ->
-      <{ c1 !! c2 }> / st --> c1' / st'
-  | CS_Choice2 : forall st st' c1 c2 c2',
-       c2 / st --> c2' / st' ->
-      <{ c1 !! c2 }> / st --> c2' / st' *)
   | CS_Choice1 : forall st c1 c2,
       <{ c1 !! c2 }> / st --> c1 / st
   | CS_Choice2 : forall st c1 c2,
@@ -617,50 +602,52 @@ Example prog1_example1:
        prog1 / RNormal (X !-> 1) -->* <{ skip }> / RNormal st'
     /\ st' X = 2.
 Proof.
-eexists. split.
-  - unfold prog1.
-    eapply multi_step.
-    apply CS_SeqStep.
-    + apply CS_AssumeStep.
-      apply BS_Eq1. apply AS_Id.
-    + eapply multi_step.
-      apply CS_SeqStep.
-      apply CS_AssumeStep.
-      apply BS_Eq.
-      eapply multi_step.
-      apply CS_SeqStep.
-      apply CS_AssumeTrue.
-      eapply multi_step.
-      apply CS_SeqFinish.
-      eapply multi_step.
-      apply CS_SeqStep.
-      apply CS_Choice1.
-      eapply multi_step.
-      apply CS_SeqStep.
-      apply CS_AsgnStep.
-      apply AS_Plus1.
-      apply AS_Id.
-      eapply multi_step.
-      apply CS_SeqStep.
-      apply CS_AsgnStep.
-      apply AS_Plus.
-      simpl.
-      eapply multi_step.
-      apply CS_SeqStep.
-      apply CS_Asgn.
-      eapply multi_step.
-      apply CS_SeqFinish.
-      eapply multi_step.
-      apply CS_AssertStep.
-      apply BS_Eq1. 
-      apply AS_Id.
-      eapply multi_step.
-      apply CS_AssertStep.
-      apply BS_Eq.
-      eapply multi_step.
-      apply CS_AssertTrue.
-      eapply multi_refl.
-  - reflexivity.
+  eexists. 
+  split.
+  unfold prog1.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_AssumeStep.
+  apply BS_Eq1. 
+  apply AS_Id.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_AssumeStep.
+  apply BS_Eq.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_AssumeTrue.
+  eapply multi_step.
+  apply CS_SeqFinish.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_Choice1.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_AsgnStep.
+  apply AS_Plus1.
+  apply AS_Id.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_AsgnStep.
+  apply AS_Plus.
+  simpl.
+  eapply multi_step.
+  apply CS_SeqStep.
+  apply CS_Asgn.
+  eapply multi_step.
+  apply CS_SeqFinish.
+  eapply multi_step.
+  apply CS_AssertStep.
+  apply BS_Eq1. 
+  apply AS_Id.
+  eapply multi_step.
+  apply CS_AssertStep.
+  apply BS_Eq.
+  eapply multi_step.
+  apply CS_AssertTrue.
+  eapply multi_refl.
+  reflexivity.
 Qed.
 
 Example prog1_example2:
@@ -711,24 +698,22 @@ Lemma one_step_aeval_a: forall st a a',
 Proof.
 induction a; intros.
   - inversion H.
-  - inversion H. simpl. reflexivity.
+  - inversion H. reflexivity.
+  - inversion H; subst; simpl; try reflexivity.
+    + apply IHa1 in H3. 
+      rewrite H3. reflexivity.
+    + apply IHa2 in H4. 
+      rewrite H4. reflexivity.
+  - inversion H; subst; simpl; try reflexivity.
+    + apply IHa1 in H3. 
+      rewrite H3. reflexivity.
+    + apply IHa2 in H4. 
+      rewrite H4. reflexivity.
   - simpl. inversion H; subst; simpl; try reflexivity.
-    + specialize (IHa1 a1'). rewrite IHa1;  try assumption. reflexivity.
-    + specialize (IHa2 a2'). rewrite IHa2;  try assumption. reflexivity.
-  - simpl. inversion H; subst; simpl; try reflexivity.
-    + specialize (IHa1 a1').
-      rewrite IHa1;  try assumption.
-      reflexivity.
-    + specialize (IHa2 a2').
-      rewrite IHa2;  try assumption.
-      reflexivity.
-  - simpl. inversion H; subst; simpl; try reflexivity.
-    + specialize (IHa1 a1').
-      rewrite IHa1;  try assumption.
-      reflexivity.
-    + specialize (IHa2 a2').
-      rewrite IHa2;  try assumption.
-      reflexivity.
+    + apply IHa1 in H3. 
+      rewrite H3. reflexivity.
+    + apply IHa2 in H4. 
+      rewrite H4. reflexivity.
   (* TODO (Hint: you can prove this by induction on a) *)
 Qed.
 
@@ -739,7 +724,7 @@ Proof.
 induction b; intros.
   - inversion H.
   - inversion H.
-  - simpl. inversion H; subst;simpl.
+  - simpl. inversion H; subst; simpl.
     + apply one_step_aeval_a in H3. rewrite H3. reflexivity.
     + apply one_step_aeval_a in H4. rewrite H4. reflexivity.
     + destruct (n1 =? n2); simpl; reflexivity.
@@ -748,12 +733,12 @@ induction b; intros.
     + apply one_step_aeval_a in H4. rewrite H4. reflexivity.
     + destruct (n1 <=? n2); simpl; reflexivity.
   - simpl. inversion H; subst; simpl.
-    + specialize (IHb b1'). rewrite IHb by assumption. reflexivity.
+    + apply IHb in H1.  rewrite H1. reflexivity.
     + reflexivity.
     + reflexivity. 
   - simpl. inversion H; subst; simpl; try reflexivity.
-    + specialize (IHb1 b1'). rewrite IHb1 by assumption. simpl. reflexivity.
-    + specialize (IHb2 b2'). rewrite IHb2 by assumption. simpl. reflexivity.
+    + apply IHb1 in H3.  rewrite H3. reflexivity.
+    + apply IHb2 in H3.  rewrite H3. reflexivity.
 Qed.  
 
 
