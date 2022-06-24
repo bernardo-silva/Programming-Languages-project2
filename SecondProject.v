@@ -754,7 +754,7 @@ induction b; intros.
   - simpl. inversion H; subst; simpl; try reflexivity.
     + specialize (IHb1 b1'). rewrite IHb1 by assumption. simpl. reflexivity.
     + specialize (IHb2 b2'). rewrite IHb2 by assumption. simpl. reflexivity.
-Qed.
+Qed.  
 
 
 Lemma aval_asgn_if: forall st x a result,
